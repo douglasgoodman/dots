@@ -8,21 +8,26 @@ namespace AiTest
 {
     public class Dot
     {
+        private bool DrawLine = false;
+        private const int BrainDirectionCount = 100;
         private const int MinSpeed = 50;
-        private const int MaxSpeed = 100;
+        private const int MaxSpeed = 200;
         private const double DotRadius = 5;
         private const int DirectionChangeMs = 100;
 
         private static readonly Brush AliveColor = Brushes.Green;
         private static readonly Brush DeadColor = Brushes.DarkGray;
         private static readonly Brush WinnerColor = Brushes.HotPink;
+        private static readonly Brush BestColor = Brushes.Red;
         private static readonly Random random = new Random();
 
         private readonly Brain brain;
         private readonly Canvas canvas;
+        private readonly Point goalCenter;
+        private readonly int goalRadius;
 
-        private DateTime lastMove = DateTime.Now;
-        private DateTime lastDirectionChange = DateTime.Now;
+        private DateTime lastMove = DateTime.MaxValue;
+        private DateTime lastDirectionChange = DateTime.MaxValue;
 
         public Point Position { get; set; }
         public Point Center => new Point(Position.X + (DotRadius / 2), Position.Y + (DotRadius / 2));
@@ -38,72 +43,113 @@ namespace AiTest
             set
             {
                 dead = value;
-                canvas.Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    Ellipse.Fill = dead ? DeadColor : AliveColor;
-                    Ellipse.Stroke = dead ? DeadColor : AliveColor;
-                    Line.Stroke = dead ? DeadColor : AliveColor;
-                }));
+                SetColor();
             }
         }
 
-        public Dot(Canvas canvas)
+        private bool isBest = false;
+        public bool IsBest
         {
-            brain = new Brain(300);
-            this.canvas = canvas;
+            get => isBest;
+            set
+            {
+                isBest = value;
+                SetColor();
+            }
+        }
 
-            var x = random.Next(Convert.ToInt32(canvas.ActualWidth - 5.0d));
-            var y = random.Next(Convert.ToInt32((canvas.ActualHeight / 4.0d) - 5.0d)) + (canvas.ActualHeight * 0.75d);
-            Position = new Point(x, y); ;
+
+        private bool reachedGoal = false;
+        public bool ReachedGoal
+        {
+            get => reachedGoal;
+            set
+            {
+                reachedGoal = value;
+                SetColor();
+            }
+        }
+
+        public Dot(Canvas canvas, Point goalCenter, int goalRadius)
+            : this(canvas, goalCenter, goalRadius, new Brain(BrainDirectionCount))
+        {
+        }
+
+        private Dot(Canvas canvas, Point goalCenter, int goalRadius, Brain brain)
+        {
+            this.canvas = canvas;
+            this.goalCenter = goalCenter;
+            this.goalRadius = goalRadius;
+            this.brain = brain;
+
+            var x = (canvas.ActualWidth / 2.0d) - (DotRadius / 2.0d);
+            var y = (canvas.ActualHeight / 10.0) * 9.0d;
+            Position = new Point(x, y);
 
             Velocity = new VelocityVector
             {
-                Speed = (random.NextDouble() * (MaxSpeed - MinSpeed)) + MinSpeed,
+                //Speed = (random.NextDouble() * (MaxSpeed - MinSpeed)) + MinSpeed,
+                Speed = MaxSpeed,
                 Direction = 90
             };
 
-            Ellipse = new Ellipse
+            canvas.Dispatcher.BeginInvoke(new Action(() =>
             {
-                Height = DotRadius,
-                Width = DotRadius,
-                Stroke = AliveColor,
-                Fill = AliveColor
-            };
+                Ellipse = new Ellipse
+                {
+                    Height = DotRadius,
+                    Width = DotRadius,
+                };
 
-            canvas.Children.Add(Ellipse);
+                canvas.Children.Add(Ellipse);
 
-            Line = new Line()
-            {
-                Stroke = AliveColor,
-                StrokeThickness = 1,
-                X1 = Position.X,
-                X2 = Position.X + Velocity.Speed * Math.Cos(Velocity.DirectionInRadians),
-                Y1 = Position.Y,
-                Y2 = Position.Y - Velocity.Speed * Math.Sin(Velocity.DirectionInRadians)
-            };
+                if (DrawLine)
+                {
+                    Line = new Line()
+                    {
+                        StrokeThickness = 1,
+                        X1 = Position.X,
+                        X2 = Position.X + Velocity.Speed * Math.Cos(Velocity.DirectionInRadians),
+                        Y1 = Position.Y,
+                        Y2 = Position.Y - Velocity.Speed * Math.Sin(Velocity.DirectionInRadians)
+                    };
 
-            canvas.Children.Add(Line);
+                    canvas.Children.Add(Line);
+                }
+
+                SetColor();
+            }));
         }
 
-        public void Draw()
+        private void SetColor()
         {
-            if (!Dead)
+            canvas.Dispatcher.BeginInvoke(new Action(() =>
             {
-                canvas.Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    Canvas.SetLeft(Ellipse, Position.X);
-                    Canvas.SetTop(Ellipse, Position.Y);
+                var color = IsBest ? BestColor : ReachedGoal ? WinnerColor : Dead ? DeadColor : AliveColor;
 
-                    Line.X1 = Position.X + (DotRadius / 2);
-                    Line.X2 = Position.X + Velocity.Speed * Math.Cos(Velocity.DirectionInRadians);
-                    Line.Y1 = Position.Y + (DotRadius / 2);
-                    Line.Y2 = Position.Y - Velocity.Speed * Math.Sin(Velocity.DirectionInRadians);
-                }));
-            }
+                Ellipse.Fill = color;
+                Ellipse.Stroke = color;
+
+                if (DrawLine)
+                {
+                    Line.Stroke = color;
+                }
+            }));
         }
 
         public void Move()
         {
+            if (Dead)
+            {
+                return;
+            }
+
+            if (lastMove == DateTime.MaxValue)
+            {
+                lastMove = DateTime.Now;
+                return;
+            }
+
             var timeSinceLastMove = DateTime.Now - lastMove;
             lastMove = DateTime.Now;
 
@@ -119,6 +165,20 @@ namespace AiTest
                 Position.Y > canvas.ActualHeight - 5)
             {
                 Dead = true;
+                return;
+            }
+
+            var distanceFromGoal = goalCenter - Center;
+            if (distanceFromGoal.Length < (goalRadius / 2d))
+            {
+                Dead = true;
+                ReachedGoal = true;
+                SetColor();
+            }
+
+            if (lastDirectionChange == DateTime.MaxValue)
+            {
+                lastDirectionChange = DateTime.Now;
                 return;
             }
 
@@ -139,14 +199,44 @@ namespace AiTest
             }
         }
 
-        public void Highlight()
+        public void Draw()
         {
-            canvas.Dispatcher.BeginInvoke(new Action(() =>
+            if (!Dead)
             {
-                Ellipse.Stroke = WinnerColor;
-                Ellipse.Fill = WinnerColor;
-                Line.Stroke = WinnerColor;
-            }));
+                canvas.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    Canvas.SetLeft(Ellipse, Position.X);
+                    Canvas.SetTop(Ellipse, Position.Y);
+
+                    if (DrawLine)
+                    {
+                        Line.X1 = Position.X + (DotRadius / 2);
+                        Line.X2 = Position.X + Velocity.Speed * Math.Cos(Velocity.DirectionInRadians);
+                        Line.Y1 = Position.Y + (DotRadius / 2);
+                        Line.Y2 = Position.Y - Velocity.Speed * Math.Sin(Velocity.DirectionInRadians);
+                    }
+                }));
+            }
         }
+
+        public void CalculateFitness()
+        {
+            if (ReachedGoal)
+            {
+                Fitness = (1.0d / 16.0d) + (10000.0d / (brain.Step * brain.Step));
+            }
+            else
+            {
+                var distanceFromGoal = goalCenter - Center;
+                Fitness = 1.0d / distanceFromGoal.LengthSquared;
+            }
+        }
+
+        public Dot Clone()
+        {
+            return new Dot(canvas, goalCenter, goalRadius, brain.Clone());
+        }
+
+        public void Mutate() => brain.Mutate();
     }
 }

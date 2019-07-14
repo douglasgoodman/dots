@@ -15,83 +15,82 @@ namespace AiTest
         private const int DotCount = 100;
         private DateTime startTime = DateTime.Now;
 
-        private Game brain;
+        private Game game;
 
         public event PropertyChangedEventHandler PropertyChanged;
         public void RaisePropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-        public string FrameRateText => $"{brain?.FrameRate ?? 0:F2} fps";
+        public string FrameRateText => $"{game?.FrameRate ?? 0:F2} fps";
         public string TimeText => $"Elapsed {(DateTime.Now - startTime).TotalSeconds:F2}";
-        public string DeadText => $"Dead {brain?.DeadDotCount ?? 0}/{DotCount}";
-        public string MaxFitnessText => $"Max Fitness {brain?.MaxFitness ?? 0:F5}";
-        public bool IsRestartButtonEnabled { get; set; } = true;
+        public string DeadText => $"Dead {game?.DeadDotCount ?? 0}/{DotCount}";
+        public string ReachedGoalText => $"Reached Goal {game?.ReachedGoalCount ?? 0}/{DotCount}";
+        public string GenerationText => $"Generation {game?.Generation ?? 0}";
+        public string BestText => $"Best {game?.Best}/{DotCount}";
+        public bool IsStartButtonEnabled { get; set; } = true;
 
         public MainWindow()
         {
             InitializeComponent();
+            KeyDown += MainWindow_KeyDown;
         }
 
-        private void Window_Loaded(object sender, RoutedEventArgs e)
+        private void MainWindow_KeyDown(object sender, KeyEventArgs e)
         {
-            this.KeyDown += MainWindow_KeyDown;
-        }
-
-        private void MainWindow_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-        {
-            if (e.Key == Key.Space)
+            if (e.Key == Key.Space && IsStartButtonEnabled)
             {
-                if (IsRestartButtonEnabled)
-                {
-                    Start();
-                }
+                Start();
             }
         }
 
         private void Start()
         {
-            Canvas.Children.Clear();
-            IsRestartButtonEnabled = false;
-            RaisePropertyChanged(nameof(IsRestartButtonEnabled));
+            IsStartButtonEnabled = false;
+            RaisePropertyChanged(nameof(IsStartButtonEnabled));
 
-            var startingLine = new Line
+            Canvas.Dispatcher.BeginInvoke(new Action(() =>
             {
-                X1 = 0,
-                X2 = Canvas.ActualWidth,
-                Y1 = Canvas.ActualHeight * 0.75d,
-                Y2 = Canvas.ActualHeight * 0.75d,
-                Stroke = Brushes.Gray,
-                StrokeThickness = 2,
-                StrokeDashArray = new DoubleCollection(new[] { 2.0d, 2.0d })
-            };
+                if (game == null)
+                {
+                    Canvas.Children.Clear();
+                }
 
-            Canvas.Children.Add(startingLine);
+                var startingLine = new Line
+                {
+                    X1 = 0,
+                    X2 = Canvas.ActualWidth,
+                    Y1 = Canvas.ActualHeight * 0.75d,
+                    Y2 = Canvas.ActualHeight * 0.75d,
+                    Stroke = Brushes.Gray,
+                    StrokeThickness = 2,
+                    StrokeDashArray = new DoubleCollection(new[] { 2.0d, 2.0d })
+                };
 
-            brain = new Game(DotCount, Canvas);
-            brain.FrameHappened += Brain_FrameHappened;
-            brain.Finished += Brain_Finished;
-            brain.Start();
-            startTime = DateTime.Now;
+                Canvas.Children.Add(startingLine);
+
+                if (game == null)
+                {
+                    game = new Game(DotCount, Canvas);
+                    game.FrameHappened += Game_FrameHappened;
+                    game.NextGeneration += Game_NextGeneration;
+                }
+
+                startTime = DateTime.Now;
+                game.Start();
+            }));
         }
 
-        private void Brain_Finished(object sender, EventArgs e)
-        {
-            brain.FrameHappened -= Brain_FrameHappened;
-            brain.Finished -= Brain_Finished;
-            IsRestartButtonEnabled = true;
-            RaisePropertyChanged(nameof(IsRestartButtonEnabled));
-        }
+        private void Game_NextGeneration(object sender, EventArgs e) => Start();
 
-        private void Brain_FrameHappened(object sender, EventArgs e)
+        private void Game_FrameHappened(object sender, EventArgs e)
         {
             RaisePropertyChanged(nameof(FrameRateText));
             RaisePropertyChanged(nameof(TimeText));
             RaisePropertyChanged(nameof(DeadText));
-            RaisePropertyChanged(nameof(MaxFitnessText));
+            RaisePropertyChanged(nameof(ReachedGoalText));
+            RaisePropertyChanged(nameof(GenerationText));
+            RaisePropertyChanged(nameof(BestText));
         }
 
-        private void Button_Click(object sender, RoutedEventArgs e)
-        {
-            Start();
-        }
+        private void Button_Click(object sender, RoutedEventArgs e) => Start();
     }
 }

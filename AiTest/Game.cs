@@ -14,6 +14,7 @@ namespace AiTest
         private const int GoalRadius = 30;
 
         private static readonly Brush GoalColor = Brushes.Yellow;
+        private static readonly Random random = new Random();
 
         private readonly int dotCount;
 
@@ -22,14 +23,17 @@ namespace AiTest
         private Ellipse goalEllipse;
         private Point goalPosition;
         private Point goalCenter;
-        private Dot winner;
+        private double fitnessSum;
 
         public event EventHandler FrameHappened;
-        public event EventHandler Finished;
+        public event EventHandler NextGeneration;
 
         public int DeadDotCount => dots.Count(d => d.Dead);
+        public int ReachedGoalCount => dots.Count(d => d.ReachedGoal);
         public double FrameRate { get; private set; }
         public double MaxFitness { get; private set; }
+        public int Generation { get; private set; }
+        public int Best { get; private set; }
 
         public Game(int count, Canvas canvas)
         {
@@ -44,13 +48,12 @@ namespace AiTest
 
             for (int i = 0; i < dotCount; i++)
             {
-                dots.Add(new Dot(canvas));
+                dots.Add(new Dot(canvas, goalCenter, GoalRadius));
             }
         }
 
         public void Start()
         {
-            winner = null;
             PlaceGoal();
             Task.Run(() => Loop());
         }
@@ -73,65 +76,104 @@ namespace AiTest
 
         public async Task Loop()
         {
-            while (DeadDotCount < dotCount && winner == null)
+            while (DeadDotCount < dotCount)
             {
                 var frameStart = DateTime.Now;
 
                 MoveDots();
                 DrawDots();
-                CalculateFitness();
-                if (winner != null)
-                {
-                    DoWinnerStuff();
-                }
-                FrameHappened?.Invoke(this, EventArgs.Empty);
+
                 await Task.Delay(1);
 
                 var frameTime = DateTime.Now - frameStart;
                 FrameRate = 1000 / frameTime.TotalMilliseconds;
+                FrameHappened?.Invoke(this, EventArgs.Empty);
             }
 
-            Finished?.Invoke(this, EventArgs.Empty);
+            Best = Math.Max(Best, ReachedGoalCount);
+            BuildNextGeneration();
+
+            NextGeneration?.Invoke(this, EventArgs.Empty);
         }
 
-        private void DoWinnerStuff()
+        private void BuildNextGeneration()
         {
-            dots.Where(d => d != winner).ToList().ForEach(d => d.Dead = true);
-            winner.Highlight();
-
+            Generation++;
             canvas.Dispatcher.BeginInvoke(new Action(() =>
             {
-                goalEllipse.Stroke = Brushes.White;
-                goalEllipse.Fill = Brushes.White;
+                canvas.Children.Clear();
             }));
-        }
-
-        private void CalculateFitness()
-        {
-            MaxFitness = double.MinValue;
-
-            dots.ForEach(d =>
-            {
-                var distance = goalCenter - d.Center;
-                if (distance.Length < (GoalRadius / 2d))
-                {
-                    winner = d;
-                }
-
-                if (distance.Length == 0)
-                {
-                    d.Fitness = 1;
-                }
-                else
-                {
-                    d.Fitness = 1.0d / distance.Length;
-                }
-                MaxFitness = Math.Max(MaxFitness, d.Fitness);
-            });
+            CalculateFitness();
+            SetBestDot();
+            NaturalSelection();
+            MutateDots();
         }
 
         private void MoveDots() => dots.ForEach(d => d.Move());
 
         private void DrawDots() => dots.ForEach(d => d.Draw());
+
+        private void CalculateFitness() => dots.ForEach(d => d.CalculateFitness());
+
+        private void SetBestDot()
+        {
+            fitnessSum = 0;
+            var maxFitness = 0d;
+            Dot maxFitnessDot = null;
+
+            foreach (var d in dots)
+            {
+                fitnessSum += d.Fitness;
+
+                if (d.Fitness > maxFitness)
+                {
+                    maxFitnessDot = d;
+                    maxFitness = d.Fitness;
+                }
+            }
+
+            maxFitnessDot.IsBest = true;
+        }
+
+        private void NaturalSelection()
+        {
+            //var bestDot = dots.First(d => d.IsBest).Clone();
+            //bestDot.IsBest = true;
+
+            //var newDots = new List<Dot> { bestDot };
+
+            var newDots = new List<Dot>();
+            var winningDots = dots.Where(d => d.ReachedGoal).Select(d => d.Clone());
+            newDots.AddRange(winningDots);
+
+            for (var i = 0; i < dotCount - winningDots.Count(); i++)
+            {
+                var parent = SelectParent();
+                var clone = parent.Clone();
+                //clone.Mutate();
+                newDots.Add(clone);
+            }
+
+            dots = newDots;
+        }
+
+        private Dot SelectParent()
+        {
+            var next = random.NextDouble() * fitnessSum;
+            var runningSum = 0d;
+
+            foreach (var d in dots)
+            {
+                runningSum += d.Fitness;
+                if (runningSum > next)
+                {
+                    return d;
+                }
+            }
+
+            return null;
+        }
+
+        private void MutateDots() => dots.ForEach(d => d.Mutate());
     }
 }
